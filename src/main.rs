@@ -4,17 +4,18 @@ use std::time::Duration;
 use dotenv::dotenv;
 use grammers_client::{Client, Config, InitParams, SignInError};
 use grammers_mtsender::ReconnectionPolicy;
+
 use grammers_session::Session;
 use sqlx::postgres::PgPoolOptions;
 use tokio::runtime;
 
 use crate::db::Post;
-use crate::translation::{LANGUAGES, translate};
+use crate::translation::{translate, LANGUAGES};
 use crate::util::prompt;
 
-mod util;
-mod translation;
 mod db;
+mod translation;
+mod util;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -38,10 +39,9 @@ impl ReconnectionPolicy for MyPolicy {
     }
 }
 
-
-async fn async_main() -> Result {
+#[tokio::main]
+async fn main() -> Result {
     dotenv().ok();
-
 
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
@@ -52,7 +52,7 @@ async fn async_main() -> Result {
     println!("Connecting to Telegram...");
     let client = Client::connect(Config {
         session: Session::load_file_or_create(SESSION_FILE)?,
-        api_id: getenv!("TG_ID",i32), // not actually logging in, but has to look real
+        api_id: getenv!("TG_ID", i32), // not actually logging in, but has to look real
         api_hash: getenv!("TG_HASH"),
 
         params: InitParams {
@@ -60,7 +60,7 @@ async fn async_main() -> Result {
             ..Default::default()
         },
     })
-        .await?;
+    .await?;
 
     println!("Connected!");
 
@@ -90,7 +90,9 @@ async fn async_main() -> Result {
         };
         println!("Signed in!");
         match client.session().save_to_file(SESSION_FILE) {
-            Ok(_) => { println!("Session saved."); }
+            Ok(_) => {
+                println!("Session saved.");
+            }
             Err(e) => {
                 println!(
                     "NOTE: failed to save the session, will sign out when done: {}",
@@ -115,10 +117,15 @@ async fn async_main() -> Result {
             Update::NewMessage(message) if !message.outgoing() && message.text() == "ping" => {
                 message.respond(message.text()).await?;
             }
-            Update::NewMessage(message) if !&message.outgoing() && &message.chat().id() == &1391125365 => {
-                let text = translate(&message.text(),
-                                     &LANGUAGES.get(0).unwrap().lang_key,
-                                     LANGUAGES.get(0).unwrap().lang_key_deepl.clone()).await;
+            Update::NewMessage(message)
+                if !&message.outgoing() && &message.chat().id() == &1391125365 =>
+            {
+                let text = translate(
+                    &message.text(),
+                    &LANGUAGES.get(0).unwrap().lang_key,
+                    LANGUAGES.get(0).unwrap().lang_key_deepl.clone(),
+                )
+                .await;
                 &message.respond(text).await?;
 
                 Post::insert("li".parse().unwrap(), 1, &db_pool).await?;
@@ -127,14 +134,7 @@ async fn async_main() -> Result {
         }
     }
 
-
     Ok(())
 }
 
-fn main() -> Result {
-    runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async_main())
-}
+
