@@ -53,6 +53,7 @@ async fn translate_deepl(text: &str, target_lang_deepl: DeeplLang) -> Result<Str
         .await
     {
         Ok(response) => {
+            println!("-- {response}");
             Ok(response.translations.get(0).unwrap().text.to_string())
         }
         Err(e) => {
@@ -156,6 +157,7 @@ impl Translator {
 
                 if let Some(div) = document.select(&selector).next() {
                     let res = div.text().collect::<String>();
+                    println!("-- {res}");
                     Ok(Value::String(res.trim().to_string()))
                 } else {
                     return Err(TranslationError::TranslationNotFound.into());

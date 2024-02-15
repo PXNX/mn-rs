@@ -139,6 +139,8 @@ async fn main() -> Result<()> {
 }
 
 
+//todo : addfn to send to error group
+
 
 async fn pong(message: &Message)-> Result<()> {
     message.respond("pong").await?;
@@ -148,7 +150,7 @@ async fn pong(message: &Message)-> Result<()> {
 
 async fn handle_text(message: &Message, db_pool: &PgPool) -> Result<()> {
     let text = translate(
-        message.text(),
+        &*message.html_text(),
         &LANGUAGES.get(0).unwrap().lang_key,
         LANGUAGES.get(0).unwrap().lang_key_deepl.clone(),
     ).await?;

@@ -1,5 +1,5 @@
 
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug, Display, Formatter};
 
 pub type DeeplLang = deepl::Lang;
 
@@ -10,9 +10,9 @@ pub enum LangKey {
 }
 
 impl Display for LangKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
 
-        fmt::Debug::fmt(self, f)
+        Debug::fmt(self, f)
     }
 }
 
@@ -32,7 +32,7 @@ pub const LANGUAGES: [Language; 2] = [
     Language {
         lang_key: LangKey::DE,      // German
         channel_id: -1001240262412, // https://t.me/MilitaerNews
-        footer: "\n🔰 Abonniere @MilitaerNews\n🔰 Diskutiere im @MNChat",
+        footer: "🔰 Abonniere @MilitaerNews\n🔰 Diskutiere im @MNChat",
         breaking: "EILMELDUNG",
         announce: "MITTEILUNG",
         advertise: "WERBUNG",
