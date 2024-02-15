@@ -1,6 +1,7 @@
 
 use sqlx::{query, PgPool};
 use anyhow::Result;
+use sqlx::postgres::PgQueryResult;
 use thiserror::Error;
 
 
@@ -29,22 +30,24 @@ pub struct Post {
 }
 
 impl Post {
-    pub async fn insert(lang: String, msg_id: i32, db_pool: &PgPool) -> Result<Self>{
+    pub async fn insert(lang: String, msg_id: i32, db_pool: &PgPool) -> Result<i32>{
 
 
-        let _ = query!(
-            "INSERT INTO posts (	lang,	msg_id) VALUES ($1, $2);",
+        let result= query!(
+            "INSERT INTO posts (	lang,	msg_id) VALUES ($1, $2) returning post_id ;",
             lang,
             msg_id,
         )
-        .execute(db_pool)
+        .fetch_one(db_pool)
         .await
         .map_err(|e| DatabaseError::InsertPost {
-            msg_id,
-            e,
-        })?;
+                msg_id,
+                e,
+            })?;
 
-        Ok(Self { lang, msg_id, post_id: 0, reply_id: 0, file_type: 0, file_id: "".to_string(), text: "".to_string() })
+//todo: post_id sollte not null sein?????
+
+        Ok(result.post_id.unwrap_or(0) )
     }
 }
 

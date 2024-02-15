@@ -12,6 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use tracing::error;
 
 use crate::db::Post;
+use crate::formatting::add_footer;
 use crate::lang::LANGUAGES;
 use crate::translation::translate;
 use crate::util::prompt;
@@ -20,6 +21,7 @@ mod db;
 mod translation;
 mod util;
 mod lang;
+mod formatting;
 
 
 const SESSION_FILE: &str = "downloader.session";
@@ -150,9 +152,16 @@ async fn handle_text(message: &Message, db_pool: &PgPool) -> Result<()> {
         &LANGUAGES.get(0).unwrap().lang_key,
         LANGUAGES.get(0).unwrap().lang_key_deepl.clone(),
     ).await?;
-    message.respond(text).await?;
 
-    Post::insert("li".parse().unwrap(), 1, db_pool).await?;
+
+   let  formatted_text = add_footer(text,  LANGUAGES.get(0).unwrap().clone())?;
+
+    let msg = message.respond(formatted_text).await?;
+
+    Post::insert("li".parse().unwrap(), msg.id(), db_pool).await?;
+
+
+
 
     Ok(())
 }
