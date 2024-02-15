@@ -1,5 +1,9 @@
 use std::io;
 use std::io::{BufRead, Write};
+
+use anyhow::Result;
+use thiserror::Error;
+
 #[macro_export]
 macro_rules! getenv {
     ($envvar:expr) => {
@@ -12,7 +16,7 @@ macro_rules! getenv {
     };
 }
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 pub fn prompt(message: &str) -> Result<String> {
     let stdout = io::stdout();
     let mut stdout = stdout.lock();

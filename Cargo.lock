@@ -63,6 +63,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.79"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "080e9890a082662b09c1ad45f567faeeb47f22b5fb23895fbe1e651e718e25ca"
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -415,9 +421,9 @@ dependencies = [
 
 [[package]]
 name = "deepl"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0449348a16a7073621a483bb65c7176cf3e9c1740c1be2e630b43154da97b411"
+checksum = "b49a1e62b5e71ac1d8f6dff08ac7ba7a99ce4264645318c712a195092bc7ee13"
 dependencies = [
  "paste",
  "reqwest",
@@ -426,6 +432,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "typed-builder",
 ]
 
 [[package]]
@@ -1337,6 +1344,7 @@ dependencies = [
 name = "mn-rs"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "deep-translator",
  "deepl",
@@ -1350,6 +1358,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sqlx",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -2883,6 +2892,26 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typed-builder"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "444d8748011b93cb168770e8092458cb0f8854f931ff82fdf6ddfbd72a9c933e"
+dependencies = [
+ "typed-builder-macro",
+]
+
+[[package]]
+name = "typed-builder-macro"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "563b3b88238ec95680aef36bdece66896eaa7ce3c0f1b4f39d38fb2435261352"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
 
 [[package]]
 name = "typenum"

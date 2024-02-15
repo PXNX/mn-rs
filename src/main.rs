@@ -1,23 +1,26 @@
 use std::ops::ControlFlow;
 use std::time::Duration;
 
+use anyhow::{Context, Result};
 use dotenv::dotenv;
 use grammers_client::{Client, Config, InitParams, SignInError};
+use grammers_client::types::Message;
 use grammers_mtsender::ReconnectionPolicy;
-
 use grammers_session::Session;
+use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use tokio::runtime;
+use tracing::error;
 
 use crate::db::Post;
-use crate::translation::{translate, LANGUAGES};
+use crate::lang::LANGUAGES;
+use crate::translation::translate;
 use crate::util::prompt;
 
 mod db;
 mod translation;
 mod util;
+mod lang;
 
-type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 const SESSION_FILE: &str = "downloader.session";
 
@@ -40,14 +43,14 @@ impl ReconnectionPolicy for MyPolicy {
 }
 
 #[tokio::main]
-async fn main() -> Result {
+async fn main() -> Result<()> {
     dotenv().ok();
 
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&getenv!("DATABASE_URL"))
         .await
-        .map_err(|e| format!("DB connection failed: {}", e))?;
+        .context("DB connection failed")?;
 
     println!("Connecting to Telegram...");
     let client = Client::connect(Config {
@@ -60,7 +63,7 @@ async fn main() -> Result {
             ..Default::default()
         },
     })
-    .await?;
+        .await?;
 
     println!("Connected!");
 
@@ -112,29 +115,48 @@ async fn main() -> Result {
     use grammers_client::Update;
 
     while let Some(update) = client.next_update().await? {
-        println!("Update: {:?}", &update);
+  //      println!("Update: {:?}", &update);
         match update {
-            Update::NewMessage(message) if !message.outgoing() && message.text() == "ping" => {
-                message.respond(message.text()).await?;
-            }
-            Update::NewMessage(message)
-                if !&message.outgoing() && &message.chat().id() == &1391125365 =>
-            {
-                let text = translate(
-                    &message.text(),
-                    &LANGUAGES.get(0).unwrap().lang_key,
-                    LANGUAGES.get(0).unwrap().lang_key_deepl.clone(),
-                )
-                .await;
-                &message.respond(text).await?;
+            Update::NewMessage(message) if !message.outgoing() && message.text() == "ping" =>
+                {
+                    pong(&message).await.map_err(|e|println!("Ping could not be handled: {e:?}"));
+                },
 
-                Post::insert("li".parse().unwrap(), 1, &db_pool).await?;
+
+            Update::NewMessage(message)
+            if !&message.outgoing() && &message.chat().id() == &1391125365 => {
+                handle_text(&message, &db_pool).await.map_err(|e|println!("Text could not be handled: {e:?}"));
             }
+             ,
+
             _ => {}
         }
     }
 
     Ok(())
 }
+
+
+
+async fn pong(message: &Message)-> Result<()> {
+    message.respond("pong").await?;
+
+    Ok(())
+}
+
+async fn handle_text(message: &Message, db_pool: &PgPool) -> Result<()> {
+    let text = translate(
+        message.text(),
+        &LANGUAGES.get(0).unwrap().lang_key,
+        LANGUAGES.get(0).unwrap().lang_key_deepl.clone(),
+    ).await?;
+    message.respond(text).await?;
+
+    Post::insert("li".parse().unwrap(), 1, db_pool).await?;
+
+    Ok(())
+}
+
+
 
 

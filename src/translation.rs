@@ -1,116 +1,80 @@
-use deepl::{DeepLApi, TagHandling};
+use std::{fmt, str::FromStr};
+use std::error::Error;
 
-use crate::getenv;
-
-
-
-pub type DeeplLang = deepl::Lang;
-
-pub enum LangKey {
-    DE,
-    EN,
-}
-
-pub struct Language {
-    pub lang_key: LangKey,
-    pub channel_id: i64,
-    pub footer: &'static str,
-    pub breaking: &'static str,
-    pub announce: &'static str,
-    pub advertise: &'static str,
-    pub username: &'static str,
-    pub chat_id: Option<i64>,
-    pub lang_key_deepl: Option<DeeplLang>,
-}
-
-pub const LANGUAGES: [Language; 2] = [
-    Language {
-        lang_key: LangKey::DE,      // German
-        channel_id: -1001240262412, // https://t.me/MilitaerNews
-        footer: "\n🔰 Abonniere @MilitaerNews\n🔰 Diskutiere im @MNChat",
-        breaking: "EILMELDUNG",
-        announce: "MITTEILUNG",
-        advertise: "WERBUNG",
-        username: "MilitaerNews",
-        chat_id: Some(-1001526741474), // https://t.me/MNChat
-        lang_key_deepl: Some(DeeplLang::DE),
-    },
-    Language {
-        lang_key: LangKey::EN,      // English - en-us
-        channel_id: -1001258430463, // https://t.me/MilitaryNewsEN
-        footer: "🔰 Subscribe to @MilitaryNewsEN\n🔰 Join us @MilitaryChatEN",
-        breaking: "BREAKING",
-        announce: "ANNOUNCEMENT",
-        advertise: "ADVERTISEMENT",
-        username: "MilitaryNewsEN",
-        chat_id: Some(-1001382962633), // https://t.me/MNChat
-        lang_key_deepl: Some(DeeplLang::EN_US),
-    },
-];
-
-pub async fn translate(
-    text: & str,
-    target_lang: &LangKey,
-    target_lang_deepl: Option<DeeplLang>,
-) -> String {
-    let mut translated_text: Option<String> = None;
-
-    if let Some(target_lang_deepl) = target_lang_deepl {
-        let deepl_translator: DeepLApi = DeepLApi::with(getenv!("DEEPL").as_str()).new();
-
-        match deepl_translator
-            .translate_text(
-                &text, target_lang_deepl.clone())
-            .source_lang(DeeplLang::DE)
-            .tag_handling(TagHandling::Html)
-            .await
-        {
-            Ok(response) => {
-                translated_text = Some(response.translations.get(0).unwrap().text.to_string())
-            }
-            Err(e) => tracing::error!("Could not translate '{target_lang_deepl:#?}': {e:#?}"),
-        }
-    }
-
-    let t = Translator{
-        source: "en".to_string(),
-        target: "ar".to_string(),
-        engine: Engine::Qcri(QcriTrans{
-            api_key:getenv!("QCRI"),
-            domain:"general".to_string()
-        }),
-        proxies: vec![],
-    };
-
-let tt = text.clone();
-    let trans =  t.translate(tt).await;
-
-    match trans {
-        Ok(response) => {
-            translated_text = Some(response.to_string())
-        }
-        Err(e) => tracing::error!("Could not translate : {e:#?}"),
-    }
-
-    translated_text.unwrap_or("ERrror".to_string())
-}
-
-
-
-
-
-use reqwest::{ Client, Response};
-use serde_json::Value;
+use std::future::Future;
 use std::ops::{Deref, DerefMut};
 
+use deepl::{DeepLApi, TagHandling};
+use reqwest::{Client, Response};
+use serde_json::Value;
+
+use anyhow::Result;
+use thiserror::Error;
+
+use crate::getenv;
+use crate::lang::{DeeplLang, LangKey};
+
+pub async fn translate(
+    text: &str,
+    target_lang: &LangKey,
+    target_lang_deepl: Option<DeeplLang>,
+) -> Result<String> {
+    let mut translated_text: String;
+
+    if let Some(target_lang_deepl) = target_lang_deepl {
+        translated_text = match translate_deepl(text, target_lang_deepl).await {
+            Ok(translated_text) => translated_text,
+            Err(_) =>   translate_alternative(text, target_lang).await?
+        };
+
+    } else {
+        translated_text = translate_alternative(text, target_lang).await?;
+    }
+
+
+    Ok(translated_text)
+}
+
+async fn translate_alternative(text: &str, target_lang: &LangKey) ->  Result<String>  {
+    Ok(Translator::new(LangKey::DE, target_lang).translate(text).await?.to_string())
+
+}
+
+async fn translate_deepl(text: &str, target_lang_deepl: DeeplLang) -> Result<String> {
+    let deepl_translator: DeepLApi = DeepLApi::with(getenv!("DEEPL").as_str()).new();
+
+    let lang = target_lang_deepl.clone();
+
+    match deepl_translator
+        .translate_text(
+            text, lang)
+        .source_lang(DeeplLang::DE)
+        .tag_handling(TagHandling::Html)
+        .await
+    {
+        Ok(response) => {
+            Ok(response.translations.get(0).unwrap().text.to_string())
+        }
+        Err(e) => {
+            return Err(TranslationError::Deepl {
+                target_lang_deepl,
+                e
+            }.into());
+        }
+
+
+    }
+}
+
+
 #[inline(always)]
-fn response_status(response: Response) -> Result<Response, Error> {
+fn response_status(response: Response) -> Result<Response> {
     if response.status() == 429 {
-        return Err(Error::TooManyRequests);
+        return Err(TranslationError::TooManyRequests.into());
     }
 
     if response.status() != 200 {
-        return Err(Error::Request);
+        return Err(TranslationError::Request.into());
     }
 
     Ok(response)
@@ -126,10 +90,10 @@ pub struct Translator {
 
 impl Translator {
     #[inline(always)]
-    pub fn new(source: String, target: String) -> Self {
+    pub fn new(source: LangKey, target: &LangKey) -> Self {
         Self {
-            source,
-            target,
+            source: source.to_string(),
+            target: target.to_string(),
             ..Self::default()
         }
     }
@@ -139,7 +103,7 @@ impl Translator {
         &self,
         url: I,
         url_params: &[(&str, &str)],
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let url = I::into(url).unwrap_or_else(|| self.base_url());
         let mut client = Client::builder();
 
@@ -153,7 +117,7 @@ impl Translator {
     }
 
     #[inline(always)]
-    pub async fn translate(&self, text: &str) -> Result<Value, Error> {
+    pub async fn translate(&self, text: &str) -> Result<Value> {
         let text = text.trim();
         if text.is_empty() || self.source == self.target {
             return Ok(Value::String(text.into()));
@@ -188,13 +152,13 @@ impl Translator {
                     ok @ Ok(..) => ok,
                     _ => scraper::Selector::parse("div.t0"),
                 }
-                    .map_err(|k| Error::CssParser(format!("{:?}", k)))?;
+                    .map_err(|k| TranslationError::CssParser(format!("{:?}", k)))?;
 
                 if let Some(div) = document.select(&selector).next() {
                     let res = div.text().collect::<String>();
                     Ok(Value::String(res.trim().to_string()))
                 } else {
-                    Err(Error::TranslationNotFound)
+                    return Err(TranslationError::TranslationNotFound.into());
                 }
             }
             Engine::Libre { api_key, .. } => {
@@ -239,10 +203,10 @@ impl Translator {
                 let html = response_status(response).unwrap().text().await?;
                 let document = scraper::Html::parse_document(&html);
                 let selector = scraper::Selector::parse("a.dictLink.featured")
-                    .map_err(|k| Error::CssParser(format!("{:?}", k)))?;
+                    .map_err(|k| TranslationError::CssParser(format!("{:?}", k)))?;
 
                 let span_selector = scraper::Selector::parse("span.placeholder")
-                    .map_err(|k| Error::CssParser(format!("{:?}", k)))?;
+                    .map_err(|k| TranslationError::CssParser(format!("{:?}", k)))?;
 
                 let mut all = document.select(&selector).map(move |a| {
                     let a_text = a.text().collect::<String>();
@@ -263,7 +227,7 @@ impl Translator {
                 } else if let Some(firts) = all.next() {
                     Ok(firts)
                 } else {
-                    Err(Error::TranslationNotFound)
+                    return Err(TranslationError::TranslationNotFound.into());
                 }
             }
             Engine::Microsoft { api_key, region } => {
@@ -305,7 +269,7 @@ impl Translator {
             }
             Engine::MyMemory { email, return_all } => {
                 if text.len() > 500 {
-                    return Err(Error::NotValidLength { min: 1, max: 500 });
+                    return Err(TranslationError::NotValidLength { min: 1, max: 500 }.into());
                 }
 
                 let langpair = format!("{}|{}", &self.source, &self.target);
@@ -380,10 +344,10 @@ impl Translator {
                 let html = response_status(response).unwrap().text().await?;
                 let document = scraper::Html::parse_document(&html);
                 let selector = scraper::Selector::parse("div.target")
-                    .map_err(|k| Error::CssParser(format!("{:?}", k)))?;
+                    .map_err(|k| TranslationError::CssParser(format!("{:?}", k)))?;
 
                 let a_selector = scraper::Selector::parse("a")
-                    .map_err(|k| Error::CssParser(format!("{:?}", k)))?;
+                    .map_err(|k| TranslationError::CssParser(format!("{:?}", k)))?;
 
                 let mut all = document.select(&selector).map(move |div| {
                     let div_text = div.text().collect::<String>();
@@ -404,7 +368,7 @@ impl Translator {
                 } else if let Some(firts) = all.next() {
                     Ok(firts)
                 } else {
-                    Err(Error::TranslationNotFound)
+                    return Err(TranslationError::TranslationNotFound.into());
                 }
             }
             Engine::Qcri(QcriTrans { api_key, domain }) => {
@@ -445,18 +409,18 @@ impl Translator {
             }
         }
     }
-/*
-    /// translate directly from file
-    pub fn translate_file(&self, path: &str) -> Result<Value, Error> {
-        self.translate(&std::fs::read_to_string(path)?)
-    }
+    /*
+        /// translate directly from file
+        pub fn translate_file(&self, path: &str) -> Result<Value, Error> {
+            self.translate(&std::fs::read_to_string(path)?)
+        }
 
-    pub fn translate_batch(&self, batch: Vec<String>) -> Vec<Result<Value, Error>> {
-        batch
-            .into_iter()
-            .map(move |source_text| self.translate(&source_text))
-            .collect()
-    } */
+        pub fn translate_batch(&self, batch: Vec<String>) -> Vec<Result<Value, Error>> {
+            batch
+                .into_iter()
+                .map(move |source_text| self.translate(&source_text))
+                .collect()
+        } */
 }
 
 impl Deref for Translator {
@@ -473,8 +437,6 @@ impl DerefMut for Translator {
     }
 }
 
-
-use std::{fmt, str::FromStr};
 
 #[macro_export]
 macro_rules! codes_to_languages {
@@ -588,7 +550,7 @@ impl Engine {
     pub fn supported_languages(&self) -> LanguagesToCodes {
         match &self {
             Self::Google | Self::MyMemory { .. } | Self::Yandex { .. } => {
-                crate::codes_to_languages! {
+              codes_to_languages! {
                     "Afrikaans" => "af",
                     "Albanian" => "sq",
                     "Amharic" => "am",
@@ -700,7 +662,7 @@ impl Engine {
                     "Zulu" => "zu"
                 }
             }
-            Self::Libre { .. } => crate::codes_to_languages! {
+            Self::Libre { .. } => codes_to_languages! {
                 "English" => "en",
                 "Arabic" => "ar",
                 "Chinese" => "zh",
@@ -719,7 +681,7 @@ impl Engine {
                 "Turkish" => "tr",
                 "Vietnamese" => "vi"
             },
-            Self::Linguee { .. } => crate::codes_to_languages! {
+            Self::Linguee { .. } => codes_to_languages! {
                 "maltese" => "mt",
                 "english" => "en",
                 "german" => "de",
@@ -748,7 +710,7 @@ impl Engine {
                 "estonian" => "et",
                 "japanese" => "ja"
             },
-            Self::Microsoft { .. } => crate::codes_to_languages! {
+            Self::Microsoft { .. } => codes_to_languages! {
                 "Afrikaans" => "af",
                 "Amharic" => "am",
                 "Arabic" => "ar",
@@ -861,7 +823,7 @@ impl Engine {
                 "Chinese Traditional" => "zh-Hant",
                 "Zulu" => "zu"
             },
-            Self::Deepl { .. } => crate::codes_to_languages! {
+            Self::Deepl { .. } => codes_to_languages! {
                 "bulgarian" => "bg",
                 "czech" => "cs",
                 "danish" => "da",
@@ -888,7 +850,7 @@ impl Engine {
                 "chinese" => "zh"
             },
 
-            Self::Papago { .. } => crate::codes_to_languages! {
+            Self::Papago { .. } => codes_to_languages! {
                 "ko" => "Korean",
                 "en" => "English",
                 "ja" => "Japanese",
@@ -901,7 +863,7 @@ impl Engine {
                 "id" => "Indonesia"
             },
 
-            Self::Pons { .. } => crate::codes_to_languages! {
+            Self::Pons { .. } => codes_to_languages! {
                 "ar" => "arabic",
                 "bg" => "bulgarian",
                 "zh-cn" => "chinese",
@@ -926,7 +888,7 @@ impl Engine {
                 "elv" => "elvish"
             },
 
-            Self::Qcri(..) => crate::codes_to_languages! {
+            Self::Qcri(..) => codes_to_languages! {
                 "Arabic" => "ar",
                 "English" => "en",
                 "Spanish" => "es"
@@ -936,13 +898,8 @@ impl Engine {
 }
 
 
-
-use std::{error::Error as StdError, };
-use sqlx::types::{Json, JsonValue};
-
-
 #[derive(Debug)]
-pub enum StatusCode {
+ enum StatusCode {
     BadRequest,
     KeyBlocked,
     DailyReqLimitExceeded,
@@ -972,75 +929,55 @@ impl From<StatusCode> for usize {
     }
 }
 
-#[derive(Debug)]
-pub enum Error {
-    /// Error occurred during the request call, e.g a connection problem.
+#[derive(Error, Debug)]
+enum TranslationError {
+    #[error("Server Error: You made too many requests to the server. According to google, you are allowed to make 5 requests per second and up to 200k requests per day. You can wait and try again later or you can try the translate_batch function.")]
     TooManyRequests,
-    /// Error occurred during the request call, e.g a connection problem.
+    #[error("Request exception can happen due to an api connection error. Please check your connection and try again.")]
     Request,
-    /// The provided text exceed the length limit of the translator
+    #[error("Text length need to be between {min} and {max} characters")]
     NotValidLength {
         min: usize,
         max: usize,
     },
-    EngineNotSupported(String),
+    #[error("Translator {0} is not supported. Supported translators: `deepl`, `google`, `libre`, `linguee`, `microsoft`, `mymemory`, `papago`, `pons`, `qcri`, `yandex`.")]
+    EngineNotSupported(
+      String
+),
+    #[error("Status code: {0:?}")]
     Server(StatusCode),
-    /// Translation was found for the text provided by the user
+    #[error("No translation was found using the current translator. Try another translator?")]
     TranslationNotFound,
+    #[error("Reqwest Error: {0}")]
     Reqwest(reqwest::Error),
+    #[error("Could not parse CSS: {0}")]
     CssParser(String),
+    #[error("I/O operation failed: {0}")]
     InputOutput(std::io::Error),
+
+    #[error("Could not translate Deppl with {target_lang_deepl:?}: {e:?}")]
+    Deepl{target_lang_deepl: DeeplLang, e: deepl::Error },
 }
 
-impl StdError for Error {}
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Error::*;
 
-        match &self {
-            TooManyRequests => "Server Error: You made too many requests to the server. \
-            According to google, you are allowed to make 5 requests per \
-            second and up to 200k requests per day. You can wait and \
-            try again later or you can try the translate_batch function"
-                .to_string(),
-            Request => "Request exception can happen due to an api connection error. \n\
-            Please check your connection and try again"
-                .into(),
-            TranslationNotFound => {
-                "No translation was found using the current translator. Try another translator?"
-                    .into()
-            }
-            NotValidLength { min, max } => format!(
-                "Text length need to be between {min} and {max} characters"
-            ),
-            EngineNotSupported(engine) => format!(
-                "Translator {} is not supported.\n\
-                Supported translators: `deepl`, `google`, `libre`, `linguee`, `microsoft`, `mymemory`, `papago`, `pons`, `qcri`, `yandex`.",
-                engine
-            ),
-            Error::Server(code) => format!("{code:?}"),
-            Reqwest(err) => err.to_string(),
-            CssParser(err) => err.clone(),
-            InputOutput(err) => err.to_string(),
-        }
-            .fmt(f)
-    }
-}
 
-impl From<reqwest::Error> for Error {
+
+impl From<reqwest::Error> for TranslationError {
     fn from(err: reqwest::Error) -> Self {
-        Error::Reqwest(err)
+        TranslationError::Reqwest(
+            err
+        )
     }
 }
 
-impl From<std::io::Error> for Error {
+impl From<std::io::Error> for TranslationError {
     fn from(err: std::io::Error) -> Self {
-        Error::InputOutput(err)
+        TranslationError::InputOutput(
+            err
+        )
     }
 }
-
-
 
 
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
@@ -1056,7 +993,7 @@ impl QcriTrans {
         format!("https://mt.qcri.org/api/v1/{endpoint}?")
     }
 
-    pub async fn domains() -> Result<String, Error> {
+    pub async fn domains() -> Result<String> {
         let response = Client::builder()
             .build().unwrap()
             .get(QcriTrans::base_url("getDomains"))
