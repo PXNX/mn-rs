@@ -14,58 +14,51 @@ use thiserror::Error;
 use crate::getenv;
 use crate::lang::{DeeplLang, LangKey};
 
+
+
+
 pub async fn translate(
     text: &str,
     target_lang: &LangKey,
-    target_lang_deepl: Option<DeeplLang>,
+    target_lang_deepl: &Option<DeeplLang>,
 ) -> Result<String> {
-    let mut translated_text: String;
-
     if let Some(target_lang_deepl) = target_lang_deepl {
-        translated_text = match translate_deepl(text, target_lang_deepl).await {
-            Ok(translated_text) => translated_text,
-            Err(_) =>   translate_alternative(text, target_lang).await?
-        };
+
+        for i in [0..6]{
+
+
+        }
+
+        let deepl_translator = DeepLApi::with(getenv!(format!("DEEPL_{i}")).as_str()).new();
+
+        let translation_deepl = deepl_translator
+            .translate_text(text, target_lang_deepl.clone())
+            .source_lang(DeeplLang::DE)
+            .tag_handling(TagHandling::Html)
+            .await;
+
+        match translation_deepl {
+            Ok(response) => response.translations.get(0).map_or_else(
+                || Err(TranslationError::TooManyRequests.into()),
+                |translation| Ok(translation.text.clone()),
+            ),
+            Err(_) => translate_alternative(text, target_lang).await,
+        }
 
     } else {
-        translated_text = translate_alternative(text, target_lang).await?;
+        translate_alternative(text, target_lang).await
     }
-
-
-    Ok(translated_text)
 }
 
 async fn translate_alternative(text: &str, target_lang: &LangKey) ->  Result<String>  {
-    Ok(Translator::new(LangKey::DE, target_lang).translate(text).await?.to_string())
-
+    Translator::new(LangKey::DE, target_lang)
+        .translate(text)
+        .await?
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| TranslationError::TranslationNotFound.into())
 }
 
-async fn translate_deepl(text: &str, target_lang_deepl: DeeplLang) -> Result<String> {
-    let deepl_translator: DeepLApi = DeepLApi::with(getenv!("DEEPL").as_str()).new();
-
-    let lang = target_lang_deepl.clone();
-
-    match deepl_translator
-        .translate_text(
-            text, lang)
-        .source_lang(DeeplLang::DE)
-        .tag_handling(TagHandling::Html)
-        .await
-    {
-        Ok(response) => {
-            println!("-- {response}");
-            Ok(response.translations.get(0).unwrap().text.to_string())
-        }
-        Err(e) => {
-            return Err(TranslationError::Deepl {
-                target_lang_deepl,
-                e
-            }.into());
-        }
-
-
-    }
-}
 
 
 #[inline(always)]
@@ -99,23 +92,26 @@ impl Translator {
         }
     }
 
+    async fn build_client_with_proxies(&self) -> Result<Client> {
+        let client_builder = Client::builder();
+        let client = self.proxies.iter().fold(client_builder, |builder, proxy| {
+            builder.proxy(proxy.clone())
+        });
+        client.build().map_err(|e| TranslationError::Reqwest(e).into())
+    }
+
     #[inline(always)]
     async fn request<I: Into<Option<String>>>(
         &self,
         url: I,
         url_params: &[(&str, &str)],
     ) -> Result<Response> {
-        let url = I::into(url).unwrap_or_else(|| self.base_url());
-        let mut client = Client::builder();
-
-        for proxy in self.proxies.clone() {
-            client = client.proxy(proxy);
-        }
-
-        let response = client.build().unwrap().get(url).query(&url_params).send().await?;
-
+        let url = url.into().unwrap_or_else(|| self.base_url());
+        let client = self.build_client_with_proxies().await?;
+        let response = client.get(url).query(&url_params).send().await?;
         response_status(response)
     }
+
 
     #[inline(always)]
     pub async fn translate(&self, text: &str) -> Result<Value> {
@@ -123,6 +119,8 @@ impl Translator {
         if text.is_empty() || self.source == self.target {
             return Ok(Value::String(text.into()));
         }
+
+        eprintln!("EN --- {}",self.engine.base_url());
 
         match &self.engine {
             Engine::Deepl { api_key, .. } => {
@@ -146,6 +144,8 @@ impl Translator {
                     None,
                     &[("tl", &self.target), ("sl", &self.source), ("q", text)],
                 ).await?;
+
+                println!("GO");
 
                 let html = response.text().await?;
                 let document = scraper::Html::parse_document(&html);
@@ -957,8 +957,8 @@ enum TranslationError {
     #[error("I/O operation failed: {0}")]
     InputOutput(std::io::Error),
 
-    #[error("Could not translate Deppl with {target_lang_deepl:?}: {e:?}")]
-    Deepl{target_lang_deepl: DeeplLang, e: deepl::Error },
+    #[error("Could not translate Deppl with {0}.")]
+    Deepl(deepl::Error ),
 }
 
 
@@ -997,7 +997,8 @@ impl QcriTrans {
 
     pub async fn domains() -> Result<String> {
         let response = Client::builder()
-            .build().unwrap()
+            .build()
+            .map_err(TranslationError::Reqwest)?
             .get(QcriTrans::base_url("getDomains"))
             .send().await?;
 
@@ -1006,3 +1007,109 @@ impl QcriTrans {
 }
 
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::LangKey;
+    use std::collections::HashMap;
+    use std::env;
+    use std::sync::Once;
+    use tokio::runtime::Runtime;
+
+    static INIT: Once = Once::new();
+
+    fn initialize() {
+        INIT.call_once(|| {
+            env::set_var("DEEPL", "d717cd13-e042-9301-0cb1-7afb29749bee:fx");
+        });
+    }
+
+    // Helper function to create a runtime
+    fn block_on<F: Future>(future: F) -> F::Output {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(future)
+    }
+
+    // Happy path test for translate function with DeeplLang provided
+    #[test]
+    fn test_translate_with_deepl_lang() {
+        initialize();
+
+        // Arrange
+        let text = "Hallo Welt";
+        let target_lang = &LangKey::EN;
+        let target_lang_deepl = Some(DeeplLang::EN);
+
+        // Act
+        let result = block_on(translate(text, target_lang, &target_lang_deepl));
+
+        // Assert
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello World");
+    }
+
+    // Happy path test for translate function without DeeplLang provided
+    #[test]
+    fn test_translate_without_deepl_lang() {
+        initialize();
+
+        // Arrange
+        let text = "Hallo Welt";
+        let target_lang = &LangKey::EN;
+        let target_lang_deepl = None;
+
+        // Act
+        let result = block_on(translate(text, target_lang, &target_lang_deepl));
+
+        // Assert
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello World");
+    }
+
+    // Edge case test for translate function with empty text
+    #[test]
+    fn test_translate_empty_text() {
+        initialize();
+
+        // Arrange
+        let text = "";
+        let target_lang = &LangKey::EN;
+        let target_lang_deepl = Some(DeeplLang::EN);
+
+        // Act
+        let result = block_on(translate(text, target_lang, &target_lang_deepl));
+
+        // Assert
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            TranslationError::TranslationNotFound.to_string()
+        );
+    }
+
+    // Error case test for translate function with too many requests
+    #[test]
+    fn test_translate_too_many_requests() {
+        initialize();
+
+        // Arrange
+        let text = "Hallo Welt";
+        let target_lang = &LangKey::EN;
+        let target_lang_deepl = Some(DeeplLang::EN);
+
+        // Simulate too many requests by setting the DEEPL environment variable to an invalid key
+        env::set_var("DEEPL", "invalid_key");
+
+        // Act
+        let result = block_on(translate(text, target_lang, &target_lang_deepl));
+
+        // Assert
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            TranslationError::TooManyRequests.to_string()
+        );
+    }
+
+
+}

@@ -18,15 +18,15 @@ use thiserror::Error;
 
 
 pub struct Post {
-    lang: String,
+    lang:  &'static str,
     msg_id: i32,
 
     post_id:  i32,
 
-    reply_id:  i32,
-    file_type:  i32,
-    file_id: String,
-    text: String
+    reply_id:  Option<i32>,
+    file_type:  Option<i32>,
+    file_id: Option<String>,
+    text: Option<String>
 }
 
 impl Post {
@@ -40,10 +40,7 @@ impl Post {
         )
         .fetch_one(db_pool)
         .await
-        .map_err(|e| DatabaseError::InsertPost {
-                msg_id,
-                e,
-            })?;
+            .map_err(|e| DatabaseError::InsertPost { msg_id, e })?;
 
 //todo: post_id sollte not null sein?????
 
