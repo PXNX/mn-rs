@@ -28,7 +28,34 @@ pub struct Language {
     pub lang_key_deepl: Option<DeeplLang>,
 }
 
-pub const LANGUAGES: [Language; 2] = [
+
+pub const LANGUAGES : [Language; 2] = [
+
+    Language {
+        lang_key: LangKey::EN,      // English - en-us
+        channel_id: 1547521960, // https://t.me/MilitaryNewsEN
+        footer: "🔰 Subscribe to @MilitaryNewsEN\n🔰 Join us @MilitaryChatEN",
+        breaking: "BREAKING",
+        announce: "ANNOUNCEMENT",
+        advertise: "ADVERTISEMENT",
+        username: "MilitaryNewsEN",
+        chat_id: Some(-1001382962633), // https://t.me/MNChat
+        lang_key_deepl: Some(DeeplLang::EN_US),
+    },
+    Language {
+        lang_key: LangKey::EN,      // English - en-us
+        channel_id:1547521960, // https://t.me/MilitaryNewsEN
+        footer: "🔰 Subscribe to @MilitaryNewsEN\n🔰 Join us @MilitaryChatEN",
+        breaking: "BREAKING",
+        announce: "ANNOUNCEMENT",
+        advertise: "ADVERTISEMENT",
+        username: "MilitaryNewsEN",
+        chat_id: Some(-1001382962633), // https://t.me/MNChat
+        lang_key_deepl: Some(DeeplLang::EN_US),
+    },
+];
+
+ const LANGUAGES_real: [Language; 2] = [
     Language {
         lang_key: LangKey::DE,      // German
         channel_id: -1001240262412, // https://t.me/MilitaerNews

@@ -1,21 +1,16 @@
 use std::{fmt, str::FromStr};
-
-
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 
+use anyhow::Result;
 use deepl::{DeepLApi, TagHandling};
 use reqwest::{Client, Response};
 use serde_json::Value;
-
-use anyhow::Result;
 use thiserror::Error;
+use tracing::{debug, error};
 
 use crate::getenv;
 use crate::lang::{DeeplLang, LangKey};
-
-
-
 
 pub async fn translate(
     text: &str,
@@ -23,34 +18,38 @@ pub async fn translate(
     target_lang_deepl: &Option<DeeplLang>,
 ) -> Result<String> {
     if let Some(target_lang_deepl) = target_lang_deepl {
+        let mut translation_result: Option<String> = None;
 
-        for i in [0..6]{
+        for i in 0..1 {
+            error!("Trying translation with Deepl Key {i}");
 
+            let deepl_translator = DeepLApi::with(getenv!(format!("DEEPL_{i}").to_string()).as_str()).new();
 
+            match deepl_translator
+                .translate_text(text, target_lang_deepl.clone())
+                .source_lang(DeeplLang::DE)
+                .tag_handling(TagHandling::Html)
+                .await
+                .unwrap_or(continue )
+            .translations.get(0)
+            {
+                None => continue,
+                Some(translation) => {
+                translation_result = Some(translation.text.clone());
+            }
+            }
+        };
+
+        match translation_result {
+            None => translate_alternative(text, target_lang).await,
+            Some(translation_result) => Ok(translation_result)
         }
-
-        let deepl_translator = DeepLApi::with(getenv!(format!("DEEPL_{i}")).as_str()).new();
-
-        let translation_deepl = deepl_translator
-            .translate_text(text, target_lang_deepl.clone())
-            .source_lang(DeeplLang::DE)
-            .tag_handling(TagHandling::Html)
-            .await;
-
-        match translation_deepl {
-            Ok(response) => response.translations.get(0).map_or_else(
-                || Err(TranslationError::TooManyRequests.into()),
-                |translation| Ok(translation.text.clone()),
-            ),
-            Err(_) => translate_alternative(text, target_lang).await,
-        }
-
     } else {
         translate_alternative(text, target_lang).await
     }
 }
 
-async fn translate_alternative(text: &str, target_lang: &LangKey) ->  Result<String>  {
+async fn translate_alternative(text: &str, target_lang: &LangKey) -> Result<String> {
     Translator::new(LangKey::DE, target_lang)
         .translate(text)
         .await?
@@ -58,7 +57,6 @@ async fn translate_alternative(text: &str, target_lang: &LangKey) ->  Result<Str
         .map(str::to_string)
         .ok_or_else(|| TranslationError::TranslationNotFound.into())
 }
-
 
 
 #[inline(always)]
@@ -120,7 +118,7 @@ impl Translator {
             return Ok(Value::String(text.into()));
         }
 
-        eprintln!("EN --- {}",self.engine.base_url());
+        eprintln!("EN --- {}", self.engine.base_url());
 
         match &self.engine {
             Engine::Deepl { api_key, .. } => {
@@ -552,7 +550,7 @@ impl Engine {
     pub fn supported_languages(&self) -> LanguagesToCodes {
         match &self {
             Self::Google | Self::MyMemory { .. } | Self::Yandex { .. } => {
-              codes_to_languages! {
+                codes_to_languages! {
                     "Afrikaans" => "af",
                     "Albanian" => "sq",
                     "Amharic" => "am",
@@ -901,7 +899,7 @@ impl Engine {
 
 
 #[derive(Debug)]
- enum StatusCode {
+enum StatusCode {
     BadRequest,
     KeyBlocked,
     DailyReqLimitExceeded,
@@ -944,8 +942,8 @@ enum TranslationError {
     },
     #[error("Translator {0} is not supported. Supported translators: `deepl`, `google`, `libre`, `linguee`, `microsoft`, `mymemory`, `papago`, `pons`, `qcri`, `yandex`.")]
     EngineNotSupported(
-      String
-),
+        String
+    ),
     #[error("Status code: {0:?}")]
     Server(StatusCode),
     #[error("No translation was found using the current translator. Try another translator?")]
@@ -958,11 +956,8 @@ enum TranslationError {
     InputOutput(std::io::Error),
 
     #[error("Could not translate Deppl with {0}.")]
-    Deepl(deepl::Error ),
+    Deepl(deepl::Error),
 }
-
-
-
 
 
 impl From<reqwest::Error> for TranslationError {
@@ -1009,12 +1004,14 @@ impl QcriTrans {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::lang::LangKey;
-    use std::collections::HashMap;
     use std::env;
     use std::sync::Once;
+
     use tokio::runtime::Runtime;
+
+    use crate::lang::LangKey;
+
+    use super::*;
 
     static INIT: Once = Once::new();
 
@@ -1110,6 +1107,4 @@ mod tests {
             TranslationError::TooManyRequests.to_string()
         );
     }
-
-
 }

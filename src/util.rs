@@ -7,12 +7,12 @@ use thiserror::Error;
 #[macro_export]
 macro_rules! getenv {
     ($envvar:expr) => {
-        std::env::var($envvar).expect(concat!("should specify `", $envvar, "` in .env file"))
+        std::env::var($envvar).expect(format!("should specify `{}` in .env file",$envvar).as_str())
     };
     ($envvar:expr, $type:ty) => {
         getenv!($envvar)
             .parse::<$type>()
-            .expect(concat!($envvar, " should be ", stringify!($type)))
+            .expect(format!( "{} should be of type {}",$envvar, stringify!($type)).as_str())
     };
 }
 
