@@ -1016,7 +1016,7 @@ mod tests {
     static INIT: Once = Once::new();
 
     fn initialize() {
-        INIT.call_once(|| {
+        INIT.call_once(|| unsafe {
             env::set_var("DEEPL", "d717cd13-e042-9301-0cb1-7afb29749bee:fx");
         });
     }
@@ -1095,7 +1095,7 @@ mod tests {
         let target_lang_deepl = Some(DeeplLang::EN);
 
         // Simulate too many requests by setting the DEEPL environment variable to an invalid key
-        env::set_var("DEEPL", "invalid_key");
+        unsafe { env::set_var("DEEPL", "invalid_key"); }
 
         // Act
         let result = block_on(translate(text, target_lang, &target_lang_deepl));

@@ -314,7 +314,8 @@ async fn copy_message(message:&Message, client:&Client ,   caption: Option<Strin
         noforwards: false,
         update_stickersets_order: false,
         invert_media: false,
-    })
+       quick_reply_shortcut: None,
+   })
         .await?;
 
 Ok(())

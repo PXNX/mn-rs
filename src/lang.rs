@@ -55,6 +55,8 @@ pub const LANGUAGES : [Language; 2] = [
     },
 ];
 
+
+/*
  const LANGUAGES_real: [Language; 2] = [
     Language {
         lang_key: LangKey::DE,      // German
@@ -79,3 +81,5 @@ pub const LANGUAGES : [Language; 2] = [
         lang_key_deepl: Some(DeeplLang::EN_US),
     },
 ];
+
+ */
