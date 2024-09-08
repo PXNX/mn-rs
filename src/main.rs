@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
         authenticate_user(&client).await?;
     }
 
-    while let Some(update) = client.next_update().await? {
+    while let update = client.next_update().await? {
         error!("UPD :: {update:?}");
         if let Err(err) = process_update(update, &client, &db_pool).await {
             let _ = handle_error(&client, err).await.map_err(|e| error!("⚠️ Failed to handle error: {e:?}"));
@@ -244,9 +244,9 @@ async fn handle_media(message: &Message, client: &Client, db_pool: &PgPool)  -> 
 
         let msg = message.clone();
 
-let uu = message.copy(packed_channel.clone(), Some(formatted_text.clone())).await;
+// let uu = message.copy(packed_channel.clone(), Some(formatted_text.clone())).await;
 
-        error!("uu: {uu:?}");
+    //    error!("uu: {uu:?}");
 
        let msg2 = copy_message(&msg, &client, Some(formatted_text.clone()),  lang.channel_id,).await?;
 
@@ -315,6 +315,7 @@ async fn copy_message(message:&Message, client:&Client ,   caption: Option<Strin
         update_stickersets_order: false,
         invert_media: false,
        quick_reply_shortcut: None,
+       effect: None,
    })
         .await?;
 

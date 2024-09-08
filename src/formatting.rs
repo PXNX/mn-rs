@@ -5,7 +5,7 @@ use anyhow::Result;
 use include_dir::{Dir, include_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde_yaml;
+use serde_yml;
 
 use crate::lang::Language;
 
